@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# PyCharm
+.idea/
+
+# Local backups
+*.backup
+*.backup3
+emg_mcp.py.backup*
+
+# Local config / secrets (never commit these)
+.env
+*.env
+config.local.*
+secrets.*
+*.secret
+
+# Local scratch (contains real customer lookups)
+try_it.py
