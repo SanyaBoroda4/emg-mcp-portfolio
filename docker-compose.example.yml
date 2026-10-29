@@ -1,0 +1,11 @@
+# Example only. Copy to docker-compose.yml and replace the placeholder values.
+# Put a TLS-terminating reverse proxy in front; the server listens on plain HTTP :8000.
+services:
+  emg-mcp:
+    build: .
+    restart: unless-stopped
+    environment:
+      EMG_BRIDGE_URL: https://bridge.example.com   # your EMGBridge base URL
+      MCP_PUBLIC_HOST: mcp.example.com             # hostname clients use (DNS-rebinding allowlist)
+    ports:
+      - "127.0.0.1:8000:8000"

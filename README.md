@@ -1,60 +1,62 @@
 # EMG Moraware MCP Server
 
-> ### ⚠️ Reading the commit history? Start here.
-> This is the **public mirror of a private production repo** (in daily use at
-> the company since June 2026). The private history can't be published as-is —
-> it references live internal infrastructure — so the public history begins
-> with this scrubbed snapshot. **From here on, every commit to the private
-> repo is mirrored here 1:1** (same message, same day). This server is one
-> piece of a larger platform — see
-> [emg-console-portfolio](https://github.com/SanyaBoroda4/emg-console-portfolio)
-> for the main application.
+An [MCP](https://modelcontextprotocol.io) server that gives Claude conversational access to a countertop fabricator's job and scheduling system (Moraware JobTracker). Each tool is a thin HTTP client over **EMGBridge**, a separate ASP.NET service that owns the Moraware session ([moraware-bridge](https://github.com/SanyaBoroda4/moraware-bridge)).
 
-`emg_mcp.py` is an [MCP](https://modelcontextprotocol.io) (Model Context
-Protocol) server that gives Claude direct, conversational access to a stone
-fabrication company's job/scheduling system (Moraware). It exposes ~16 tools;
-each is a thin HTTP client over the **EMGBridge** backend (a separate private
-ASP.NET service that owns the Moraware SDK session).
+The team asks things like *"what's the square footage on the Carter job?"*, *"find the next open install day"* or *"who is 843-555-1234?"*, and Claude answers from live company data.
 
-In practice this means the team can ask Claude things like *"what's the square
-footage on the Carter job?"*, *"find the next open install day"*, or *"who is
-843-555-1234?"* — and Claude answers from live company data.
+> This is a sanitized snapshot of a private repository; the public history is one commit per snapshot, never the private history. The tool code matches the version in production; the snapshot also carries a docstring-only change (11 tools labelled READ-ONLY) that is not deployed yet.
+> The production endpoint requires a bearer token; this mirror uses placeholders.
+
+## Numbers
+
+All measured on this snapshot on 2026-10-29.
+
+| What | Value | Command |
+|---|---|---|
+| MCP tools | **40** | `python -c "import asyncio, emg_mcp; print(len(asyncio.run(emg_mcp.mcp.list_tools())))"` |
+| Tools that can write | **1** (`create_activity`, `dry_run=True` by default) | `python -c "import asyncio, emg_mcp; print([t.name for t in asyncio.run(emg_mcp.mcp.list_tools()) if 'dry_run' in t.inputSchema['properties']])"` |
+| Tests | **49** (no network; the bridge is an `httpx.MockTransport`) | `pytest -q` |
 
 ## Tools
 
-- **Job lookup & info** — `find_job_by_name` (fuzzy, ambiguity-aware),
-  `job_details` (every field on every form), `job_timeline`, `square_footage`
-- **Materials analytics** — `material_search`, `material_list`,
-  `jobs_by_salesperson` (combined salesperson × material × install-date
-  queries, e.g. "natural-stone jobs due for resealing")
-- **Customers & invoices** — `customer_by_phone` (last-4-digit matching),
-  `invoice_by_job`, `job_by_invoice`
-- **Scheduling** — `next_open_day`, `list_scheduled_activities`, and
-  `create_activity` — the one write tool, which **defaults to a dry-run
-  preview** and only writes after explicit human confirmation
-- **Ops** — `list_stale_jobs` (follow-up radar), `followup_status`,
-  `assignees`, `activity_types`, `cache_status`
+| Area | Tools |
+|---|---|
+| Jobs | `find_job_by_name`, `find_job_by_address`, `jobs_list`, `job_overview`, `job_details`, `job_timeline`, `job_change_log`, `square_footage` |
+| Files, quotes, orders | `job_files`, `job_file_content`, `job_quotes`, `job_orders` |
+| Accounts and customers | `account_find`, `account_details`, `account_jobs`, `customer_by_phone` |
+| Invoices | `invoice_by_job`, `job_by_invoice` |
+| Scheduling | `calendar`, `next_open_day`, `list_scheduled_activities`, `assignees`, `create_activity` |
+| Follow-ups | `list_stale_jobs`, `followup_status` |
+| Materials | `material_search`, `material_list`, `jobs_by_salesperson` |
+| Reports and views | `list_reports`, `run_report`, `saved_views` |
+| Reference data | `activity_types`, `activity_statuses`, `job_statuses`, `form_templates`, `appointment_types` |
+| Introspection and health | `moraware_capabilities`, `moraware_object`, `cache_status`, `moraware_web_login_status` |
 
 ## Design notes
 
-- **Docstrings are the product.** Each tool's docstring is written for the
-  LLM: when to pick this tool over a similar one, how to resolve names to IDs
-  first, what edge cases mean (cache staleness, ambiguous matches, sentinel
-  dates), and when to stop and ask the human.
-- **Human-in-the-loop writes.** The single mutating tool previews by default
-  (`dry_run=True`); the model is instructed to show the preview and get an
-  explicit yes before committing.
-- **Thin client, smart backend.** The server holds no credentials and no
-  business logic — the bridge owns the Moraware session, caching, and
-  indexing. (`BASE` here points at a placeholder; the real endpoint is
-  internal.)
+- **Docstrings are the product.** Each docstring is written for the model: when to pick this tool over a similar one, to resolve a name to a job ID before acting, what edge cases mean (cache staleness, ambiguous matches, sentinel dates), and when to stop and ask the person.
+- **One write tool, preview first.** `create_activity` returns a preview and writes nothing unless called with `dry_run=False`; its docstring tells the model to show the preview and get an explicit yes first. It takes a job ID, never a name. Every other tool is labelled `READ-ONLY`, and the tests enforce both rules.
+- **Errors the model can explain.** When the bridge is unreachable or answers without JSON, tools return an `Error` / `ErrorCode` pair (`BRIDGE_UNAVAILABLE`) instead of raising, matching the bridge's own error codes.
+- **Thin client.** The server holds no Moraware credentials and no business logic; the bridge owns the session, the cache and the indexes.
+- **DNS-rebinding protection.** Over streamable HTTP, only the configured public host is accepted (`MCP_PUBLIC_HOST`); any other `Host` header gets HTTP 421.
 
-## Run
+## Run it
 
 ```
-pip install mcp httpx
+pip install -r requirements-dev.txt
+pytest -q
 ```
 
-Point `BASE` at your bridge, then either let Claude Desktop launch it over
-stdio, or run it directly as a streamable-HTTP server (see `__main__`, which
-also configures DNS-rebinding protection and allowed origins).
+| Setting | Default | Meaning |
+|---|---|---|
+| `EMG_BRIDGE_URL` | `https://bridge.example.com` | EMGBridge base URL |
+| `MCP_PUBLIC_HOST` | `mcp.example.com` | Hostname clients use; the DNS-rebinding allowlist |
+
+- **Streamable HTTP:** `python emg_mcp.py` listens on `0.0.0.0:8000` at `/mcp`. Or with Docker: copy `docker-compose.example.yml` to `docker-compose.yml`, set the values, then `docker compose up --build`. Put a TLS-terminating reverse proxy in front.
+- **Clients:** add `https://<your MCP_PUBLIC_HOST>/mcp` as a remote MCP server (for example, a claude.ai custom connector).
+
+CI (`.github/workflows/ci.yml`) runs the tests, prints the tool count and builds the Docker image on every push.
+
+## How it's built
+
+Built with [Claude Code](https://claude.com/claude-code) from my specs and work orders. I own the requirements, the tool design, the deployment and the production debugging. Claude Code wrote most of the code and tests under that direction.

@@ -26,3 +26,7 @@ secrets.*
 
 # Local scratch (contains real customer lookups)
 try_it.py
+
+# Test / local deploy
+.pytest_cache/
+docker-compose.yml

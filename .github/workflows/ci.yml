@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q
+      - name: Count tools
+        run: python -c "import asyncio, emg_mcp; print(len(asyncio.run(emg_mcp.mcp.list_tools())))"
+      - name: Docker image builds
+        run: docker build -t emg-mcp:ci .
